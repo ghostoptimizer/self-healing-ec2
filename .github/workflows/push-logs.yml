@@ -1,0 +1,36 @@
+name: Push Logs to S3 via SSM
+
+on:
+  workflow_dispatch: # Manual trigger from GitHub UI
+  schedule:
+    - cron: "*/30 * * * *" # Optional: every 30 minutes (UTC)
+
+jobs:
+  push-logs:
+    name: Run push_logs_to_s3.sh on EC2 via SSM
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Send SSM command to EC2
+        run: |
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=self-healing-node" \
+                      "Name=instance-state-name,Values=running" \
+            --query "Reservations[0].Instances[0].InstanceId" \
+            --output text)
+
+          echo "Sending command to instance: $INSTANCE_ID"
+
+          aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Run push_logs_to_s3.sh" \
+            --parameters commands=["sudo /opt/self-healing/push_logs_to_s3.sh"] \
+            --output text
